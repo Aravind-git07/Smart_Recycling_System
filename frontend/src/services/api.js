@@ -3,7 +3,11 @@
  * Connects to the FastAPI backend via configured proxy or relative paths.
  */
 
-const API_BASE = import.meta.env.VITE_API_BASE_URL || '/api';
+const rawBase = (import.meta.env.VITE_API_BASE_URL || '/api').trim();
+// Automatically ensure the API base has /api at the end without double slashes
+const API_BASE = rawBase.replace(/\/+$/, '').endsWith('/api')
+  ? rawBase.replace(/\/+$/, '')
+  : (rawBase === '' ? '/api' : `${rawBase.replace(/\/+$/, '')}/api`);
 
 export async function checkSystemHealth() {
   const res = await fetch(`${API_BASE}/health`);
