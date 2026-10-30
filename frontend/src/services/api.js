@@ -3,7 +3,7 @@
  * Connects to the FastAPI backend via configured proxy or relative paths.
  */
 
-const API_BASE = '/api';
+const API_BASE = import.meta.env.VITE_API_BASE_URL || '/api';
 
 export async function checkSystemHealth() {
   const res = await fetch(`${API_BASE}/health`);
