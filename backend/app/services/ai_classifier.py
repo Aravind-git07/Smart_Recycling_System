@@ -277,7 +277,7 @@ def analyze_image_pillow(image_bytes: bytes, filename: str) -> Dict[str, Any]:
 def analyze_image_with_gemini_rest(image_bytes: bytes, mime_type: str, api_key: str) -> Dict[str, Any]:
     """
     Direct HTTP REST API call to Google Gemini 1.5 Flash Vision.
-    Bypasses SDK quirks and provides guaranteed universal cloud inference.
+    Bypasses SDK quirks and provides universal cloud inference.
     """
     clean_key = api_key.strip().strip("'\"")
     b64_data = base64.b64encode(image_bytes).decode("utf-8")
@@ -364,55 +364,68 @@ def analyze_image_with_gemini_rest(image_bytes: bytes, mime_type: str, api_key: 
         "explanation": parsed.get("explanation", f"Identified as {normalized} using Google Gemini Vision.")
     }
 
-def analyze_image_with_gemini(image_bytes: bytes, mime_type: str, filename: str) -> Dict[str, Any]:
+def analyze_image_with_gemini(image_bytes: bytes, mime_type: str, filename: str, api_key: str) -> Dict[str, Any]:
     """
-    Attempts cloud AI inference: first via official GenAI SDK, then via direct REST API fallback.
+    Attempts cloud AI inference: first optimizes image to stay well under Google's 4MB inline payload limit,
+    then executes direct REST with SDK fallback.
     """
-    clean_key = (GEMINI_API_KEY or "").strip().strip("'\"")
+    clean_key = api_key.strip().strip("'\"")
+
+    # Optimize and resize image for Gemini Vision (phone photos can be 8MB+, Google limits inline to 4MB)
+    try:
+        pil_img = Image.open(io.BytesIO(image_bytes))
+        pil_img = ImageOps.exif_transpose(pil_img)
+        pil_img.thumbnail((1024, 1024), Image.Resampling.LANCZOS)
+        buf = io.BytesIO()
+        pil_img.convert("RGB").save(buf, format="JPEG", quality=85, optimize=True)
+        optimized_bytes = buf.getvalue()
+    except Exception as prep_err:
+        logger.warning(f"Image optimization warning: {prep_err}")
+        optimized_bytes = image_bytes
 
     # 1. Try Direct REST first (most reliable on cloud containers)
+    rest_err = None
     try:
-        return analyze_image_with_gemini_rest(image_bytes, mime_type, clean_key)
-    except Exception as rest_err:
-        logger.warning(f"Gemini REST attempt failed: {rest_err}. Trying SDK...")
+        return analyze_image_with_gemini_rest(optimized_bytes, "image/jpeg", clean_key)
+    except Exception as e:
+        rest_err = e
+        logger.warning(f"Gemini REST error: {e}")
 
     # 2. Try SDK as backup
-    from google import genai
-    from google.genai import types
+    sdk_err = None
+    try:
+        from google import genai
+        from google.genai import types
 
-    client = genai.Client(api_key=clean_key)
-    supported_mimes = ["image/jpeg", "image/png", "image/webp", "image/heic"]
-    final_mime = mime_type if mime_type in supported_mimes else "image/jpeg"
+        client = genai.Client(api_key=clean_key)
+        response = client.models.generate_content(
+            model="gemini-1.5-flash",
+            contents=[
+                types.Part.from_bytes(data=optimized_bytes, mime_type="image/jpeg"),
+                "Identify waste material category from ['Plastic','Paper','Cardboard','Glass','Metal','Organic','E-Waste','General Waste']. Return JSON with category, item_name, confidence_score, visual_features, explanation."
+            ],
+            config=types.GenerateContentConfig(response_mime_type="application/json")
+        )
+        text_resp = response.text.strip()
+        if text_resp.startswith("```"):
+            text_resp = text_resp.strip("`")
+            if text_resp.startswith("json"):
+                text_resp = text_resp[4:].strip()
+        data = json.loads(text_resp)
+        raw_cat = data.get("category", "General Waste")
+        normalized = normalize_category(raw_cat)
+        return {
+            "category": normalized,
+            "item_name": data.get("item_name", f"{normalized} Item"),
+            "confidence_score": 0.90,
+            "visual_features": data.get("visual_features", ["Analyzed with Gemini SDK"]),
+            "explanation": data.get("explanation", f"Identified as {normalized} using Gemini SDK.")
+        }
+    except Exception as e:
+        sdk_err = e
+        logger.warning(f"Gemini SDK error: {e}")
 
-    for model_name in ["gemini-1.5-flash", "gemini-2.0-flash"]:
-        try:
-            response = client.models.generate_content(
-                model=model_name,
-                contents=[
-                    types.Part.from_bytes(data=image_bytes, mime_type=final_mime),
-                    "Identify waste material category from ['Plastic','Paper','Cardboard','Glass','Metal','Organic','E-Waste','General Waste']. Return JSON with category, item_name, confidence_score, visual_features, explanation."
-                ],
-                config=types.GenerateContentConfig(response_mime_type="application/json")
-            )
-            text_resp = response.text.strip()
-            if text_resp.startswith("```"):
-                text_resp = text_resp.strip("`")
-                if text_resp.startswith("json"):
-                    text_resp = text_resp[4:].strip()
-            data = json.loads(text_resp)
-            raw_cat = data.get("category", "General Waste")
-            normalized = normalize_category(raw_cat)
-            return {
-                "category": normalized,
-                "item_name": data.get("item_name", f"{normalized} Item"),
-                "confidence_score": 0.90,
-                "visual_features": data.get("visual_features", ["Analyzed with Gemini SDK"]),
-                "explanation": data.get("explanation", f"Identified as {normalized} using Gemini SDK.")
-            }
-        except Exception as e:
-            logger.warning(f"SDK failed with {model_name}: {e}")
-
-    raise RuntimeError("Both Gemini REST and SDK failed.")
+    raise RuntimeError(f"{rest_err or sdk_err}")
 
 def classify_waste_image(image_bytes: bytes, filename: str, mime_type: str = "image/jpeg") -> Dict[str, Any]:
     """
@@ -433,7 +446,7 @@ def classify_waste_image(image_bytes: bytes, filename: str, mime_type: str = "im
     if clean_key:
         try:
             logger.info("Attempting classification with Gemini Vision API...")
-            result = analyze_image_with_gemini(image_bytes, mime_type, filename)
+            result = analyze_image_with_gemini(image_bytes, mime_type, filename, clean_key)
             result["engine"] = "gemini-vision"
             return result
         except Exception as e:
