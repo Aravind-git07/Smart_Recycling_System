@@ -341,6 +341,8 @@ def classify_waste_image(image_bytes: bytes, filename: str, mime_type: str = "im
         raise ValueError("Invalid image file: Uploaded content is not a valid image.") from e
 
     clean_key = (GEMINI_API_KEY or "").strip().strip("'\"")
+    gemini_error = None
+
     if clean_key:
         try:
             logger.info("Attempting classification with Gemini Vision API...")
@@ -348,8 +350,14 @@ def classify_waste_image(image_bytes: bytes, filename: str, mime_type: str = "im
             result["engine"] = "gemini-vision"
             return result
         except Exception as e:
-            logger.warning(f"Gemini API call failed ({e}). Falling back to built-in CV engine.")
+            gemini_error = f"Gemini API call failed: {str(e)}"
+            logger.warning(f"{gemini_error}. Falling back to built-in CV engine.")
+    else:
+        gemini_error = "GEMINI_API_KEY is not configured on Render"
 
     result = analyze_image_pillow(image_bytes, filename)
     result["engine"] = "offline-cv-engine"
+    result["engine_warning"] = gemini_error
+    if gemini_error:
+        result["visual_features"] = [f"⚠️ Note: {gemini_error}"] + result.get("visual_features", [])
     return result

@@ -102,6 +102,17 @@ export default function RecommendationCard({ result: initialResult, onReset, onR
                   Target Bin: {rec.bin_color}
                 </span>
               )}
+              {result.classification_method === 'ai' && (
+                result.engine === 'gemini-vision' ? (
+                  <span className="badge" style={{ backgroundColor: '#eff6ff', color: '#1d4ed8', border: '1px solid #bfdbfe' }}>
+                    ⚡ Gemini Vision AI
+                  </span>
+                ) : (
+                  <span className="badge" style={{ backgroundColor: '#fffbeb', color: '#b45309', border: '1px solid #fde68a' }}>
+                    ⚙️ Built-in CV Engine
+                  </span>
+                )
+              )}
             </div>
 
             <h2 style={{ fontSize: '1.35rem', fontWeight: 700, color: 'var(--text-main)', margin: '0 0 0.2rem 0' }}>

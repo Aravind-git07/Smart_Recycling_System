@@ -9,6 +9,19 @@ const API_BASE = rawBase.replace(/\/+$/, '').endsWith('/api')
   ? rawBase.replace(/\/+$/, '')
   : (rawBase === '' ? '/api' : `${rawBase.replace(/\/+$/, '')}/api`);
 
+/**
+ * Returns full absolute URL for uploaded images hosted on Render.
+ */
+export function getFullImageUrl(path) {
+  if (!path) return null;
+  if (path.startsWith('http://') || path.startsWith('https://')) return path;
+  const renderOrigin = rawBase.replace(/\/+$/, '').replace(/\/api$/, '');
+  if (renderOrigin && renderOrigin.startsWith('http')) {
+    return `${renderOrigin}${path.startsWith('/') ? '' : '/'}${path}`;
+  }
+  return path;
+}
+
 export async function checkSystemHealth() {
   const res = await fetch(`${API_BASE}/health`);
   if (!res.ok) throw new Error('Health check failed');

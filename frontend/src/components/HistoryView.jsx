@@ -13,7 +13,7 @@ import {
   FileImage,
   CheckCircle2
 } from 'lucide-react';
-import { getHistory, getHistoryDetail, deleteHistoryRecord, clearAllHistory } from '../services/api';
+import { getHistory, getHistoryDetail, deleteHistoryRecord, clearAllHistory, getFullImageUrl } from '../services/api';
 
 export default function HistoryView({ onNavigateToClassify }) {
   const [records, setRecords] = useState([]);
@@ -219,7 +219,7 @@ export default function HistoryView({ onNavigateToClassify }) {
                     <td>
                       {r.image_url ? (
                         <img
-                          src={r.image_url}
+                          src={getFullImageUrl(r.image_url)}
                           alt={r.item_name}
                           style={{ width: '38px', height: '38px', objectFit: 'cover', borderRadius: 'var(--radius-sm)', border: '1px solid var(--border-light)' }}
                         />
@@ -373,7 +373,7 @@ export default function HistoryView({ onNavigateToClassify }) {
                 justifyContent: 'center'
               }}>
                 <img
-                  src={selectedRecord.image_url}
+                  src={getFullImageUrl(selectedRecord.image_url)}
                   alt={selectedRecord.item_name}
                   style={{ maxHeight: '100%', maxWidth: '100%', objectFit: 'contain' }}
                 />
