@@ -23,6 +23,51 @@ VALID_CATEGORIES = [
     "General Waste"
 ]
 
+# Cached discovered models
+CACHED_AVAILABLE_MODELS: List[str] = []
+
+def discover_available_gemini_models(api_key: str) -> List[str]:
+    """
+    Dynamically queries Google's ModelService to find models that support generateContent for this key.
+    Prevents 404 Model Not Found errors across different API tiers.
+    """
+    global CACHED_AVAILABLE_MODELS
+    if CACHED_AVAILABLE_MODELS:
+        return CACHED_AVAILABLE_MODELS
+
+    clean_key = api_key.strip().strip("'\"")
+    discovered = []
+    url = f"https://generativelanguage.googleapis.com/v1beta/models?key={clean_key}"
+
+    try:
+        resp = requests.get(url, timeout=8)
+        if resp.ok:
+            data = resp.json()
+            for m in data.get("models", []):
+                name = m.get("name", "").replace("models/", "")
+                methods = m.get("supportedGenerationMethods", [])
+                if "generateContent" in methods and "gemini" in name.lower():
+                    discovered.append(name)
+            if discovered:
+                logger.info(f"Discovered active Gemini models from Google: {discovered}")
+                CACHED_AVAILABLE_MODELS = discovered
+                return discovered
+    except Exception as e:
+        logger.warning(f"Gemini ListModels check failed: {e}")
+
+    # Fallback prioritized list of Gemini vision models
+    candidates = [
+        "gemini-2.0-flash",
+        "gemini-1.5-flash-latest",
+        "gemini-1.5-flash-002",
+        "gemini-1.5-flash-001",
+        "gemini-2.0-flash-exp",
+        "gemini-1.5-flash",
+        "gemini-1.5-pro",
+        "gemini-2.5-flash"
+    ]
+    return candidates
+
 def analyze_image_pillow(image_bytes: bytes, filename: str) -> Dict[str, Any]:
     """
     Intelligent score-based built-in Computer Vision feature analysis engine.
@@ -276,14 +321,14 @@ def analyze_image_pillow(image_bytes: bytes, filename: str) -> Dict[str, Any]:
 
 def analyze_image_with_gemini_rest(image_bytes: bytes, mime_type: str, api_key: str) -> Dict[str, Any]:
     """
-    Direct HTTP REST API call to Google Gemini 1.5 Flash Vision.
-    Bypasses SDK quirks and provides universal cloud inference.
+    Direct HTTP REST API call to Google Gemini Vision.
+    Dynamically tries the best active Gemini vision models (gemini-2.0-flash, gemini-1.5-flash-latest, etc.).
     """
     clean_key = api_key.strip().strip("'\"")
     b64_data = base64.b64encode(image_bytes).decode("utf-8")
     final_mime = mime_type if mime_type in ["image/jpeg", "image/png", "image/webp", "image/heic"] else "image/jpeg"
 
-    url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key={clean_key}"
+    models_to_try = discover_available_gemini_models(clean_key)
     headers = {"Content-Type": "application/json"}
 
     prompt = (
@@ -324,50 +369,64 @@ def analyze_image_with_gemini_rest(image_bytes: bytes, mime_type: str, api_key: 
         }
     }
 
-    resp = requests.post(url, headers=headers, json=payload, timeout=25)
-    if not resp.ok:
-        err_msg = resp.text
+    last_rest_err = None
+    for model_name in models_to_try:
+        url = f"https://generativelanguage.googleapis.com/v1beta/models/{model_name}:generateContent?key={clean_key}"
         try:
-            err_json = resp.json()
-            err_msg = err_json.get("error", {}).get("message", resp.text)
-        except Exception:
-            pass
-        raise RuntimeError(f"Google Gemini REST error ({resp.status_code}): {err_msg}")
+            resp = requests.post(url, headers=headers, json=payload, timeout=25)
+            if not resp.ok:
+                err_msg = resp.text
+                try:
+                    err_json = resp.json()
+                    err_msg = err_json.get("error", {}).get("message", resp.text)
+                except Exception:
+                    pass
+                last_rest_err = RuntimeError(f"Google Gemini REST error ({resp.status_code}) on {model_name}: {err_msg}")
+                # If 404 model not found, try the next model!
+                if resp.status_code == 404:
+                    continue
+                else:
+                    raise last_rest_err
 
-    data = resp.json()
-    candidates = data.get("candidates", [])
-    if not candidates:
-        raise RuntimeError("Gemini returned no candidates.")
+            data = resp.json()
+            candidates = data.get("candidates", [])
+            if not candidates:
+                continue
 
-    text = candidates[0].get("content", {}).get("parts", [{}])[0].get("text", "")
-    if text.startswith("```"):
-        text = text.strip("`")
-        if text.startswith("json"):
-            text = text[4:].strip()
+            text = candidates[0].get("content", {}).get("parts", [{}])[0].get("text", "")
+            if text.startswith("```"):
+                text = text.strip("`")
+                if text.startswith("json"):
+                    text = text[4:].strip()
 
-    parsed = json.loads(text)
-    raw_cat = parsed.get("category", "General Waste")
-    normalized = normalize_category(raw_cat)
+            parsed = json.loads(text)
+            raw_cat = parsed.get("category", "General Waste")
+            normalized = normalize_category(raw_cat)
 
-    raw_conf = parsed.get("confidence_score", 0.90)
-    try:
-        conf = float(raw_conf)
-        conf = max(0.1, min(0.99, conf))
-    except (ValueError, TypeError):
-        conf = 0.90
+            raw_conf = parsed.get("confidence_score", 0.90)
+            try:
+                conf = float(raw_conf)
+                conf = max(0.1, min(0.99, conf))
+            except (ValueError, TypeError):
+                conf = 0.90
 
-    return {
-        "category": normalized,
-        "item_name": parsed.get("item_name", f"{normalized} Item"),
-        "confidence_score": round(conf, 2),
-        "visual_features": parsed.get("visual_features", ["Analyzed with Google Gemini 1.5 Flash Vision"]),
-        "explanation": parsed.get("explanation", f"Identified as {normalized} using Google Gemini Vision.")
-    }
+            return {
+                "category": normalized,
+                "item_name": parsed.get("item_name", f"{normalized} Item"),
+                "confidence_score": round(conf, 2),
+                "visual_features": parsed.get("visual_features", [f"Analyzed with Google Gemini Vision ({model_name})"]),
+                "explanation": parsed.get("explanation", f"Identified as {normalized} using Google Gemini Vision ({model_name}).")
+            }
+        except Exception as e:
+            last_rest_err = e
+            continue
+
+    raise last_rest_err or RuntimeError("No compatible Gemini model found.")
 
 def analyze_image_with_gemini(image_bytes: bytes, mime_type: str, filename: str, api_key: str) -> Dict[str, Any]:
     """
     Attempts cloud AI inference: first optimizes image to stay well under Google's 4MB inline payload limit,
-    then executes direct REST with SDK fallback.
+    then executes multi-model REST with SDK fallback.
     """
     clean_key = api_key.strip().strip("'\"")
 
@@ -383,7 +442,7 @@ def analyze_image_with_gemini(image_bytes: bytes, mime_type: str, filename: str,
         logger.warning(f"Image optimization warning: {prep_err}")
         optimized_bytes = image_bytes
 
-    # 1. Try Direct REST first (most reliable on cloud containers)
+    # 1. Try Direct REST with automatic model discovery
     rest_err = None
     try:
         return analyze_image_with_gemini_rest(optimized_bytes, "image/jpeg", clean_key)
@@ -391,36 +450,40 @@ def analyze_image_with_gemini(image_bytes: bytes, mime_type: str, filename: str,
         rest_err = e
         logger.warning(f"Gemini REST error: {e}")
 
-    # 2. Try SDK as backup
+    # 2. Try SDK as backup with active candidate models
     sdk_err = None
     try:
         from google import genai
         from google.genai import types
 
         client = genai.Client(api_key=clean_key)
-        response = client.models.generate_content(
-            model="gemini-1.5-flash",
-            contents=[
-                types.Part.from_bytes(data=optimized_bytes, mime_type="image/jpeg"),
-                "Identify waste material category from ['Plastic','Paper','Cardboard','Glass','Metal','Organic','E-Waste','General Waste']. Return JSON with category, item_name, confidence_score, visual_features, explanation."
-            ],
-            config=types.GenerateContentConfig(response_mime_type="application/json")
-        )
-        text_resp = response.text.strip()
-        if text_resp.startswith("```"):
-            text_resp = text_resp.strip("`")
-            if text_resp.startswith("json"):
-                text_resp = text_resp[4:].strip()
-        data = json.loads(text_resp)
-        raw_cat = data.get("category", "General Waste")
-        normalized = normalize_category(raw_cat)
-        return {
-            "category": normalized,
-            "item_name": data.get("item_name", f"{normalized} Item"),
-            "confidence_score": 0.90,
-            "visual_features": data.get("visual_features", ["Analyzed with Gemini SDK"]),
-            "explanation": data.get("explanation", f"Identified as {normalized} using Gemini SDK.")
-        }
+        for candidate_model in ["gemini-2.0-flash", "gemini-1.5-flash-latest", "gemini-1.5-flash"]:
+            try:
+                response = client.models.generate_content(
+                    model=candidate_model,
+                    contents=[
+                        types.Part.from_bytes(data=optimized_bytes, mime_type="image/jpeg"),
+                        "Identify waste material category from ['Plastic','Paper','Cardboard','Glass','Metal','Organic','E-Waste','General Waste']. Return JSON with category, item_name, confidence_score, visual_features, explanation."
+                    ],
+                    config=types.GenerateContentConfig(response_mime_type="application/json")
+                )
+                text_resp = response.text.strip()
+                if text_resp.startswith("```"):
+                    text_resp = text_resp.strip("`")
+                    if text_resp.startswith("json"):
+                        text_resp = text_resp[4:].strip()
+                data = json.loads(text_resp)
+                raw_cat = data.get("category", "General Waste")
+                normalized = normalize_category(raw_cat)
+                return {
+                    "category": normalized,
+                    "item_name": data.get("item_name", f"{normalized} Item"),
+                    "confidence_score": 0.90,
+                    "visual_features": data.get("visual_features", [f"Analyzed with Gemini ({candidate_model})"]),
+                    "explanation": data.get("explanation", f"Identified as {normalized} using Gemini ({candidate_model}).")
+                }
+            except Exception:
+                continue
     except Exception as e:
         sdk_err = e
         logger.warning(f"Gemini SDK error: {e}")
