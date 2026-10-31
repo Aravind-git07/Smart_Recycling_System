@@ -4,6 +4,13 @@ This guide is prepared to help you confidently present, explain, and defend the 
 
 ---
 
+## 🌐 Live Production Deployment
+- **Frontend App (Vercel):** https://smart-recycling-system-snowy.vercel.app
+- **Backend API & Swagger Docs (Render):** https://smart-recycling-system-isn1.onrender.com/docs
+- **GitHub Repository:** https://github.com/Aravind-git07/Smart_Recycling_System
+
+---
+
 ## 1. Quick Project Summary (Elevator Pitch)
 
 > *"The AI-Based Smart Recycling System is an intelligent, full-stack waste-management web application. It combines automated image classification (using computer vision and generative AI) with an actionable recycling knowledge engine. Instead of merely labeling waste items, it provides step-by-step preparation instructions (rinsing, crushing, peeling), upcycling ideas, contamination warnings, safety precautions, and municipal notes. The system is designed with graceful degradation so it functions both online with Google Gemini Vision and offline with a built-in computer vision heuristic engine, ensuring zero downtime during demonstrations."*
