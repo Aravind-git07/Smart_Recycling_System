@@ -313,3 +313,4 @@ The React frontend compiles with zero warnings or errors using Vite:
 ## 14. Conclusion
 
 The **AI-Based Smart Recycling & Waste Segregation System** successfully demonstrates a practical, robust, and full-featured engineering solution to urban waste contamination. By combining cloud multimodal generative AI (Google Gemini) with an offline score-based computer vision engine and a manual failover tier, the system achieves continuous availability and resilience across all operating conditions. Coupled with comprehensive downstream circular economy checklists, dynamic SQL analytics, mobile camera support, and cloud deployment, the application serves as an exemplary modern engineering project showcasing technical rigor, clean software architecture, and direct societal impact.
+
