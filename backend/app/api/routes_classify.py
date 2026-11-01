@@ -9,7 +9,7 @@ from ..config import UPLOAD_DIR, MAX_IMAGE_SIZE_BYTES, ALLOWED_EXTENSIONS
 from ..models.classification import ClassificationRecord
 from ..schemas.classification import ClassificationResponse, ManualClassificationRequest, CorrectionRequest, RecommendationDetail
 from ..services.ai_classifier import classify_waste_image
-from ..services.recommendation_engine import get_recommendation, normalize_category
+from ..services.recommendation_engine import get_recommendation, normalize_category, infer_category_from_text
 
 router = APIRouter(prefix="/api", tags=["Classification"])
 
@@ -124,25 +124,36 @@ def manual_waste_selection(
     """
     Manually select a waste category to receive recycling recommendations
     without requiring image classification. Records in database with method='manual'.
+    Intelligently respects material keywords in item_name (e.g. 'coke tin' -> Metal, 'glass jar' -> Glass).
     """
-    canonical_category = normalize_category(request.category)
-    item_name = request.item_name or f"Selected {canonical_category}"
-    recommendations = get_recommendation(canonical_category, item_name)
+    raw_cat = request.category or "Plastic"
+    item_name = (request.item_name or "").strip()
+
+    # If the user typed an item name that explicitly identifies a material
+    # (e.g. typing "glass jar" or "coke tin"), intelligently honor that material:
+    inferred_cat = infer_category_from_text(item_name) if item_name else None
+    if inferred_cat:
+        canonical_category = inferred_cat
+    else:
+        canonical_category = normalize_category(raw_cat)
+
+    final_item_name = item_name or f"Selected {canonical_category}"
+    recommendations = get_recommendation(canonical_category, final_item_name)
 
     explanation = (
-        f"Material category manually designated as '{canonical_category}' by the user. "
+        f"Material category designated as '{canonical_category}' based on user selection '{final_item_name}'. "
         "Standard material recycling protocol and regulatory safety instructions applied."
     )
     if request.notes:
         explanation += f" User notes: {request.notes}"
 
     db_record = ClassificationRecord(
-        item_name=item_name,
+        item_name=final_item_name,
         category=canonical_category,
         classification_method="manual",
         confidence_score=None,  # No fabricated confidence for manual
         explanation=explanation,
-        visual_features=json.dumps(["Category specified manually via user selector"]),
+        visual_features=json.dumps([f"Material Selection: {canonical_category}"]),
         image_filename=None,
         image_path=None,
         recyclability=recommendations.recyclability,

@@ -19,6 +19,42 @@ export default function ManualSelectionView({ onSwitchToAI, onRecordSaved }) {
   const [error, setError] = useState(null);
   const [result, setResult] = useState(null);
 
+  const inferCategoryFromText = (text) => {
+    if (!text) return null;
+    const lower = text.toLowerCase().trim();
+    if (/tin|coke|pepsi|soda\s*can|aluminum|aluminium|foil|steel|metal|iron|copper|brass|\bcan\b/i.test(lower)) {
+      if (!/trash\s*can|garbage\s*can/i.test(lower)) return 'Metal';
+    }
+    if (/glass|jar|pickle|mason|cullet|mirror|wine\s*bottle|beer\s*bottle/i.test(lower)) {
+      return 'Glass';
+    }
+    if (/cardboard|box|carton|corrugated|shipping\s*box|pizza\s*box/i.test(lower)) {
+      return 'Cardboard';
+    }
+    if (/paper|newspaper|magazine|book|notebook|receipt|envelope|printout/i.test(lower)) {
+      return 'Paper';
+    }
+    if (/e-?waste|cable|charger|wire|battery|phone|laptop|circuit|usb|adapter|electronic/i.test(lower)) {
+      return 'E-Waste';
+    }
+    if (/food|fruit|vegetable|peel|banana|apple|bread|scrap|organic|compost/i.test(lower)) {
+      return 'Organic';
+    }
+    if (/plastic|water\s*bottle|shampoo|bottle|jug|tub|container|pvc|pet|hdpe|polymer/i.test(lower)) {
+      return 'Plastic';
+    }
+    return null;
+  };
+
+  const handleItemNameChange = (e) => {
+    const val = e.target.value;
+    setCustomItemName(val);
+    const autoCat = inferCategoryFromText(val);
+    if (autoCat) {
+      setSelectedCat(autoCat);
+    }
+  };
+
   useEffect(() => {
     loadCategories();
   }, []);
@@ -73,12 +109,31 @@ export default function ManualSelectionView({ onSwitchToAI, onRecordSaved }) {
         <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
           {/* Category Selection Grid */}
           <div className="card">
-            <h3 style={{ fontSize: '1rem', fontWeight: 600, marginBottom: '0.5rem' }}>
-              Choose Waste Category
-            </h3>
-            <p style={{ fontSize: '0.8125rem', color: 'var(--text-muted)', marginBottom: '1.25rem' }}>
-              Click on the primary material composition of your waste item:
-            </p>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.85rem', flexWrap: 'wrap', gap: '0.5rem' }}>
+              <div>
+                <h3 style={{ fontSize: '1rem', fontWeight: 600, margin: 0 }}>
+                  Choose Waste Category
+                </h3>
+                <p style={{ fontSize: '0.8125rem', color: 'var(--text-muted)', margin: '0.25rem 0 0 0' }}>
+                  Click a material card, or type your item below to auto-select:
+                </p>
+              </div>
+              <div style={{
+                backgroundColor: 'var(--color-primary-light)',
+                border: '1px solid var(--color-primary)',
+                color: 'var(--color-primary-hover)',
+                padding: '0.3rem 0.85rem',
+                borderRadius: 'var(--radius-sm)',
+                fontSize: '0.85rem',
+                fontWeight: 600,
+                display: 'flex',
+                alignItems: 'center',
+                gap: '0.4rem'
+              }}>
+                <span>Active Selection:</span>
+                <strong>{selectedCat}</strong>
+              </div>
+            </div>
 
             <div style={{
               display: 'grid',
@@ -153,10 +208,24 @@ export default function ManualSelectionView({ onSwitchToAI, onRecordSaved }) {
                   id="custom-item-name"
                   type="text"
                   className="form-input"
-                  placeholder="e.g. 500ml Clear PET Water Bottle, Cereal Box, Aluminum Drink Can"
+                  placeholder="e.g. 500ml Clear PET Water Bottle, Coke Tin, Glass Jar, Cereal Box"
                   value={customItemName}
-                  onChange={(e) => setCustomItemName(e.target.value)}
+                  onChange={handleItemNameChange}
                 />
+                {customItemName && inferCategoryFromText(customItemName) && (
+                  <div style={{
+                    marginTop: '0.45rem',
+                    fontSize: '0.8125rem',
+                    color: '#16a34a',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '0.4rem',
+                    fontWeight: 500
+                  }}>
+                    <CheckCircle size={15} />
+                    <span>Auto-detected material: <strong>{inferCategoryFromText(customItemName)}</strong> (Category card selected above)</span>
+                  </div>
+                )}
               </div>
 
               <div className="form-group">

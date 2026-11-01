@@ -300,6 +300,49 @@ def get_recommendation(category: str, item_name: Optional[str] = None) -> Recomm
         bin_color=data["bin_color"]
     )
 
+def infer_category_from_text(text: str) -> Optional[str]:
+    """
+    Infers waste material category from item name or description keywords.
+    E.g. 'coke tin' -> 'Metal', 'glass jar' -> 'Glass', 'cereal box' -> 'Cardboard'.
+    """
+    if not text:
+        return None
+    lower = text.lower().strip()
+
+    # Metal detection (tin, can, aluminum, steel, brass, foil)
+    if any(k in lower for k in ["tin", "coke", "pepsi", "soda can", "aluminum", "aluminium", "foil", "steel", "metal", "iron", "copper", "brass"]):
+        if "trash can" not in lower and "garbage can" not in lower:
+            return "Metal"
+    if " can" in lower or lower.startswith("can ") or lower == "can":
+        if "trash can" not in lower and "garbage can" not in lower:
+            return "Metal"
+
+    # Glass detection (glass, jar, pickle, mason, cullet, mirror, wine bottle)
+    if any(k in lower for k in ["glass", "jar", "pickle", "mason", "cullet", "mirror", "wine bottle", "beer bottle", "champagne bottle"]):
+        return "Glass"
+
+    # Cardboard detection (box, carton, corrugated, cardboard, packaging)
+    if any(k in lower for k in ["cardboard", "box", "carton", "corrugated", "cereal box", "shoe box", "pizza box"]):
+        return "Cardboard"
+
+    # Paper detection (paper, newspaper, book, notebook, magazine, envelope, receipt)
+    if any(k in lower for k in ["paper", "newspaper", "magazine", "book", "notebook", "receipt", "envelope", "printout", "leaflet", "pamphlet"]):
+        return "Paper"
+
+    # E-Waste detection (cable, charger, wire, phone, laptop, battery, circuit, usb)
+    if any(k in lower for k in ["e-waste", "ewaste", "cable", "charger", "wire", "battery", "phone", "laptop", "circuit", "usb", "adapter", "electronic", "keyboard", "mouse", "headphone"]):
+        return "E-Waste"
+
+    # Organic detection (food, fruit, peel, vegetable, banana, apple, organic, scrap, compost)
+    if any(k in lower for k in ["food", "fruit", "vegetable", "peel", "banana", "apple", "bread", "scrap", "leaf", "plant", "organic", "tea bag", "coffee ground", "egg"]):
+        return "Organic"
+
+    # Plastic detection (plastic, bottle, jug, tub, pet, hdpe, pvc, polymer, tupperware)
+    if any(k in lower for k in ["plastic", "water bottle", "shampoo", "bottle", "jug", "tub", "container", "pvc", "pet", "hdpe", "polymer", "polyethylene", "polystyrene", "tupperware"]):
+        return "Plastic"
+
+    return None
+
 def get_all_categories() -> List[WasteCategoryDetail]:
     """Retrieve full catalog of supported categories for UI selector and educational view."""
     categories_list = []
